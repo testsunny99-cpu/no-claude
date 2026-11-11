@@ -103,14 +103,22 @@ guard_uninstall() {
 }
 
 guard_status() {
-  if launchctl list 2>/dev/null | grep -q "com.local.no-claude.guard"; then
-    local pid
-    pid=$(launchctl list | awk '/com.local.no-claude.guard/{print $1}')
-    echo "$(c 32 '✓') 守护运行中（last exit ${pid}）"
-    [[ -f "$STATE_DIR/disabled" ]] && echo "  $(c 33 '!') 但已被 $STATE_DIR/disabled 暂停"
-  else
-    echo "$(c 2 '-') 守护未安装"
-  fi
+  # 注意：不能写 `launchctl list | grep -q ...`，grep -q 提前退出会让 launchctl
+  # 收到 SIGPIPE，在 pipefail 下整条管道被判为失败。
+  local out state
+  out=$(launchctl list 2>/dev/null || true)
+  case "$out" in
+    *com.local.no-claude.guard*)
+      state=$(printf '%s\n' "$out" | awk '/com.local.no-claude.guard/{print $2}')
+      echo "$(c 32 '✓') 守护已加载（最近退出码 ${state:-0}）"
+      if [[ -f "$STATE_DIR/disabled" ]]; then
+        echo "  $(c 33 '!') 但已被 $STATE_DIR/disabled 暂停"
+      fi
+      ;;
+    *)
+      echo "$(c 2 '-') 守护未安装"
+      ;;
+  esac
 }
 
 # ---------------------------------------------------------------- clean
