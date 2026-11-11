@@ -1,5 +1,9 @@
 # No Claude
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#platform-support)
+[![Telemetry](https://img.shields.io/badge/telemetry-off-brightgreen.svg)](#)
+
 Turn off telemetry from **Claude Code CLI** and **Claude Desktop**: crash reporting, usage analytics, feature-flag polling, and update checks.
 
 Local configuration only. No repackaging, no traffic interception, no touching conversation data.
@@ -104,6 +108,16 @@ You must click **"re-apply configuration"** once in Clash Verge for the rules to
 reads `/rules` over the mihomo unix socket and tells you whether they are live. Re-run `block install` after a
 subscription update if Clash Verge regenerates the enhancement file.
 
+## Platform support
+
+| Platform | Entry point | App layer (CLI / CC Switch / Desktop) | Network layer | Verified |
+|---|---|---|---|---|
+| macOS | `./no-claude.sh` | ✅ | ✅ Clash Verge rules | on real hardware |
+| Windows | `platform/windows/no-claude.ps1` | ⚠️ adapted, not tested | ⚠️ writes rules only | unverified |
+| Linux | `python3 tools/config.py` | ⚠️ CLI only | ⚠️ writes rules only | unverified |
+
+Paths and design rationale: [platform/README.md](platform/README.md).
+
 ## Rollback
 
 ```bash
@@ -120,4 +134,6 @@ subscription update if Clash Verge regenerates the enhancement file.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 No Claude contributors
+
+Use it, modify it, redistribute it, ship it commercially — just keep the copyright and license notice. This project contains no Claude code or assets; it only reads and writes configuration files on your own machine.

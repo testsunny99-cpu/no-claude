@@ -1,5 +1,9 @@
 # No Claude
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey.svg)](#平台支持)
+[![Telemetry](https://img.shields.io/badge/telemetry-off-brightgreen.svg)](#)
+
 关掉 **Claude Code CLI** 和 **Claude Desktop** 的遥测回传：崩溃上报、使用分析、功能开关拉取、自动更新检查。
 
 只改本地配置文件，不重打包应用、不劫持流量、不碰对话内容。
@@ -125,6 +129,16 @@ DOMAIN-SUFFIX,datadoghq.eu,REJECT
 
 注意：换订阅/更新订阅后，如果 Clash Verge 重建了规则增强文件，重新执行 `block install` 即可。
 
+## 平台支持
+
+| 平台 | 入口 | 应用层（CLI / CC Switch / 桌面端） | 网络层 | 验证状态 |
+|---|---|---|---|---|
+| macOS | `./no-claude.sh` | ✅ | ✅ Clash Verge 规则 | 实机验证 |
+| Windows | `platform/windows/no-claude.ps1` | ⚠️ 已适配，未实机验证 | ⚠️ 只写规则文件 | 未验证 |
+| Linux | `python3 tools/config.py` | ⚠️ 仅 CLI | ⚠️ 只写规则文件 | 未验证 |
+
+路径对照与设计取舍见 [platform/README.md](platform/README.md)。
+
 ## 回滚
 
 ```bash
@@ -148,4 +162,6 @@ DOMAIN-SUFFIX,datadoghq.eu,REJECT
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 No Claude contributors
+
+可自由使用、修改、分发、商用，保留版权与许可声明即可。本项目不含任何 Claude 的代码或资源，只在本地读写你自己机器上的配置文件。
