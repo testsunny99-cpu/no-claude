@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # no-claude — 关闭 Claude Code CLI / Claude Desktop 的遥测回传
 #
-#   ./no-claude.sh status          查看哪些开关还开着
+#   ./no-claude.sh status          查看哪些开关还开着（含网络层）
 #   ./no-claude.sh apply           写入开关（幂等）
 #   ./no-claude.sh verify          重启应用并做实测复验
 #   ./no-claude.sh clean           归档已排队的崩溃上报和会话指纹
+#   ./no-claude.sh block install   把遥测域名写进 Clash Verge 的 REJECT 规则
 #   ./no-claude.sh guard install   安装守护，防止 CC Switch 切换供应商后开关被覆盖
 #   ./no-claude.sh uninstall       全部回滚
 set -uo pipefail
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY="$HERE/tools/config.py"
+PYB="$HERE/tools/block.py"
 STATE_DIR="$HOME/.local/share/no-claude"
 
 DRY_RUN=0
@@ -27,13 +29,14 @@ no-claude $VERSION — 关闭 Claude 的遥测回传
 用法: ./no-claude.sh <命令> [选项]
 
 命令:
-  status       列出各处的遥测开关状态
+  status       列出各处的遥测开关状态（应用层 + 网络层）
   apply        写入关闭开关（可重复执行，只补差异）
   revert       移除本工具写入的开关
   verify       重启 Claude 并检查是否仍在生成遥测数据
   clean        归档 sentry 队列和 scope 文件（默认移到 archived 目录，不删除）
+  block        网络层：install | status | uninstall（写入 Clash Verge REJECT 规则）
   guard        守护安装/卸载/状态：install | uninstall | status
-  uninstall    等价于 revert + guard uninstall
+  uninstall    等价于 revert + block uninstall + guard uninstall
 
 选项:
   --dry-run    只显示将要做什么，不写任何文件
@@ -117,6 +120,30 @@ guard_status() {
       ;;
     *)
       echo "$(c 2 '-') 守护未安装"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------- block
+
+cmd_block() {
+  local sub="${1:-status}"
+  shift || true
+  local a
+  for a in "$@"; do
+    [[ "$a" == "--dry-run" ]] && DRY_RUN=1
+  done
+  case "$sub" in
+    install|status|uninstall)
+      if [[ $DRY_RUN -eq 1 ]]; then
+        python3 "$PYB" "$sub" --dry-run
+      else
+        python3 "$PYB" "$sub"
+      fi
+      ;;
+    *)
+      echo "用法: ./no-claude.sh block {install|status|uninstall}" >&2
+      return 2
       ;;
   esac
 }
@@ -259,9 +286,22 @@ done
 case "$cmd" in
   status)
     if [[ "${JSON:-0}" -eq 1 ]]; then
-      python3 "$PY" status --json
+      python3 - "$PY" "$PYB" <<'PY'
+import json, subprocess, sys
+def run(p):
+    out = subprocess.run([sys.executable, p, "status", "--json"], capture_output=True, text=True).stdout
+    try:
+        return json.loads(out)
+    except Exception:
+        return {}
+merged = run(sys.argv[1])
+merged["network"] = run(sys.argv[2])
+print(json.dumps(merged, ensure_ascii=False, indent=2))
+PY
     else
       python3 "$PY" status
+      echo
+      python3 "$PYB" status
     fi
     ;;
   apply)
@@ -277,6 +317,9 @@ case "$cmd" in
       echo
       echo "$(c 33 '提示') 如果你用 CC Switch 切换供应商，它重写配置时可能覆盖这些开关。"
       echo "     需要自动补回就执行: ./no-claude.sh guard install"
+      echo
+      echo "网络层（可选）：把遥测域名写进 Clash Verge 的 REJECT 规则"
+      echo "     ./no-claude.sh block install"
     fi
     ;;
   revert|uninstall)
@@ -285,7 +328,11 @@ case "$cmd" in
     else
       python3 "$PY" revert
     fi
-    [[ "$cmd" == "uninstall" && $DRY_RUN -eq 0 ]] && guard_uninstall
+    if [[ "$cmd" == "uninstall" && $DRY_RUN -eq 0 ]]; then
+      echo
+      cmd_block uninstall
+      guard_uninstall
+    fi
     ;;
   verify)
     cmd_verify
@@ -293,6 +340,9 @@ case "$cmd" in
   clean)
     [[ $DRY_RUN -eq 1 ]] && { echo "dry-run:"; }
     cmd_clean
+    ;;
+  block)
+    cmd_block "$@"
     ;;
   guard)
     case "${1:-status}" in

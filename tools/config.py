@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 # ---------------------------------------------------------------------------
 # 要写入的开关
@@ -55,13 +55,29 @@ DESKTOP_KEYS = {
 }
 
 # CC Switch 里 claude 的公共配置片段，避免切换供应商时覆盖 ~/.claude/settings.json
-CCSWITCH_DB = Path.home() / ".cc-switch" / "cc-switch.db"
+def ccswitch_db() -> Path:
+    home = Path.home()
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
+        return base / "cc-switch" / "cc-switch.db"
+    return home / ".cc-switch" / "cc-switch.db"
 CCSWITCH_KEY = "common_config_claude"
 
 CLAUDE_CONFIG_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
 CLI_SETTINGS = CLAUDE_CONFIG_DIR / "settings.json"
 
-SUPPORT = Path.home() / "Library" / "Application Support"
+def support_roots() -> list[Path]:
+    """各平台存放 Claude 桌面端数据的根目录。"""
+    home = Path.home()
+    if sys.platform == "darwin":
+        return [home / "Library" / "Application Support"]
+    if sys.platform == "win32":
+        roots = []
+        if os.environ.get("APPDATA"):
+            roots.append(Path(os.environ["APPDATA"]))
+        roots.append(home / "AppData" / "Roaming")
+        return roots
+    return [home / ".config", home / ".local" / "share"]
 
 QUIET = False
 
@@ -207,11 +223,12 @@ def cli_revert(dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 
 def ccswitch_state() -> dict:
-    st = {"path": str(CCSWITCH_DB), "present": CCSWITCH_DB.exists(), "off": False, "keys": {}}
+    db = ccswitch_db()
+    st = {"path": str(db), "present": db.exists(), "off": False, "keys": {}}
     if not st["present"]:
         return st
     try:
-        con = sqlite3.connect(f"file:{CCSWITCH_DB}?mode=ro", uri=True)
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         row = con.execute("select value from settings where key=?", (CCSWITCH_KEY,)).fetchone()
         con.close()
     except Exception as e:
@@ -232,11 +249,12 @@ def ccswitch_state() -> dict:
 
 def ccswitch_apply(dry_run: bool) -> None:
     head("CC Switch 公共配置（可选）")
-    if not CCSWITCH_DB.exists():
+    db = ccswitch_db()
+    if not db.exists():
         skip("未安装 CC Switch，跳过")
         return
     try:
-        con = sqlite3.connect(CCSWITCH_DB)
+        con = sqlite3.connect(db)
         row = con.execute("select value from settings where key=?", (CCSWITCH_KEY,)).fetchone()
         if not row:
             con.close()
@@ -266,10 +284,11 @@ def ccswitch_apply(dry_run: bool) -> None:
 
 
 def ccswitch_revert(dry_run: bool) -> None:
-    if not CCSWITCH_DB.exists():
+    db = ccswitch_db()
+    if not db.exists():
         return
     try:
-        con = sqlite3.connect(CCSWITCH_DB)
+        con = sqlite3.connect(db)
         row = con.execute("select value from settings where key=?", (CCSWITCH_KEY,)).fetchone()
         if not row:
             con.close()
@@ -304,15 +323,20 @@ def ccswitch_revert(dry_run: bool) -> None:
 def desktop_dirs() -> list[Path]:
     """Claude / Claude-3p / Claude-<mode> 都可能存在，只保留看起来像数据目录的。"""
     out: list[Path] = []
-    if not SUPPORT.exists():
-        return out
-    for p in sorted(SUPPORT.iterdir()):
-        if not p.is_dir() or not p.name.startswith("Claude"):
+    seen: set[Path] = set()
+    for root in support_roots():
+        if not root.exists():
             continue
-        if p.name not in ("Claude",) and not p.name.startswith("Claude-"):
-            continue
-        if (p / "config.json").exists() or (p / "configLibrary").is_dir():
-            out.append(p)
+        for p in sorted(root.iterdir()):
+            if not p.is_dir() or not p.name.startswith("Claude"):
+                continue
+            if p.name != "Claude" and not p.name.startswith("Claude-"):
+                continue
+            if p in seen:
+                continue
+            if (p / "config.json").exists() or (p / "configLibrary").is_dir():
+                out.append(p)
+                seen.add(p)
     return out
 
 

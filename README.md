@@ -4,6 +4,19 @@
 
 只改本地配置文件，不重打包应用、不劫持流量、不碰对话内容。
 
+> **声明｜Disclaimer**
+>
+> 本项目只用于**保护使用者本人的隐私**，仅关闭我自己设备上、我自己账号产生的遥测与崩溃上报。
+> **不得**用于伤害 Anthropic / Claude，或任何其他方的合法权益：不用于绕过计费与额度、不用于规避风控、
+> 不用于攻击 Service、不用于伪造身份或规避服务条款，也不用于阻断开源项目本身正常工作所必需的网络请求。
+> 使用前请自行确认符合你所在地法律与 Claude 的服务条款；因滥用造成的后果与作者无关。
+>
+> This project is solely for **protecting the user's own privacy** on their own machine and account.
+> It **must not** be used to harm Anthropic/Claude or any other party's legitimate interests:
+> no bypassing billing or quotas, no evading abuse controls, no attacking the service,
+> no impersonation, and no blocking traffic that the software legitimately needs to function.
+> You are responsible for compliance with local law and Claude's Terms of Service.
+
 ```
 ./no-claude.sh apply --guard     # 关闭
 ./no-claude.sh verify --restart  # 验证
@@ -38,6 +51,7 @@ cd no-claude
 ./no-claude.sh apply           # 写入开关（幂等，可反复执行）
 ./no-claude.sh clean           # 归档已排队但还没发出去的遥测数据
 ./no-claude.sh verify --restart  # 重启 Claude 并检查是否还在生成遥测
+./no-claude.sh block install     # 可选：把遥测域名写进 Clash Verge 的 REJECT 规则
 ```
 
 想让开关在 CC Switch 切换供应商后自动补回：
@@ -76,24 +90,46 @@ HTTPS_PROXY=http://127.0.0.1:8889 claude -p "say OK"
 | `~/.cc-switch/cc-switch.db` → `common_config_claude` | 让 CC Switch 切换供应商时不丢开关 |
 | `~/Library/Application Support/Claude*/configLibrary/<id>.json` | 桌面端真正读取的托管配置层 |
 | `~/Library/LaunchAgents/com.local.no-claude.guard.plist` | 可选守护（`--guard`） |
+| `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/profiles/<rules>.yaml` | 可选网络层：Clash Verge 规则增强文件的 `prepend`（`block install`） |
 
 `./no-claude.sh clean` 只把 `sentry/` 下的队列和 scope 文件改名归档（加 `.archived-<时间>`），**不删除**。
 
-## 为什么不直接改 hosts / 封域名
+## 网络层：只封遥测域名（可选）
 
-因为那样会误伤：
+应用层关掉开关最干净，但官方可能改键名。想再加一道网，用：
 
-- `api.anthropic.com` 同时也是官方 API 的入口。你用中转网关（`ANTHROPIC_BASE_URL`）时它才没用，直接封会连带打断正常调用。
-- 桌面端和 CLI 走系统代理，域名级阻断要靠 Clash/mihomo 规则，而 mihomo 的 `PATCH /configs` 是整表替换，容易把用户现有规则清空。
-- 遥测是应用自己发起的，把发起方关掉比在网络上堵更干净，也不会因为节点切换而失效。
+```bash
+./no-claude.sh block install    # 写入 Clash Verge 规则，幂等
+./no-claude.sh status           # 同时显示应用层和网络层
+./no-claude.sh block uninstall  # 移除
+```
 
-如果你确实想加一层网络阻断，只拦这几类：`*.sentry.io`、`*.ingest.us.sentry.io`、`*.statsigapi.net`、`claude.ai/api/v2/rum`、`api.anthropic.com/api/event_logging/`。
+它只往 **Clash Verge 的“规则”增强文件** 的 `prepend` 里加一段带 `# no-claude:begin/end` 标记的规则（改前留 `.no-claude.bak`），
+不碰你的订阅、节点、策略组，也不用 sudo，更不会调用 mihomo 的 `PATCH /configs`（那是整表替换，容易清空现有规则）。
+
+封的是这 5 条，全部直接 `REJECT`：
+
+```
+DOMAIN-SUFFIX,sentry.io,REJECT
+DOMAIN-SUFFIX,statsigapi.net,REJECT
+DOMAIN-SUFFIX,statsig.anthropic.com,REJECT
+DOMAIN-SUFFIX,datadoghq.com,REJECT
+DOMAIN-SUFFIX,datadoghq.eu,REJECT
+```
+
+**不封** `anthropic.com` 和 `claude.ai` —— 它们是正常业务域名，封了会打断调用。所以 `claude.ai/api/v2/rum` 这条 RUM 上报只能靠应用层开关关掉（本项目已验证有效）。
+同理 `api.anthropic.com/api/event_logging/` 是路径级接口，mihomo 只能按域名匹配，做不到只封路径。
+
+写完后规则还没进内核，需要你在 Clash Verge 里点一次 **“重新应用配置”**（或点一下当前订阅）。
+`./no-claude.sh status` 会通过 mihomo 的 unix socket 读 `/rules`，告诉你规则到底加载没有。
+
+注意：换订阅/更新订阅后，如果 Clash Verge 重建了规则增强文件，重新执行 `block install` 即可。
 
 ## 回滚
 
 ```bash
 ./no-claude.sh revert              # 移除本工具写入的开关
-./no-claude.sh uninstall           # 上面的 + 卸载守护
+./no-claude.sh uninstall           # 上面的 + 移除网络层规则 + 卸载守护
 ```
 
 不会动你的其他配置。备份文件可按需恢复。
@@ -103,7 +139,7 @@ HTTPS_PROXY=http://127.0.0.1:8889 claude -p "say OK"
 - **只管遥测，不管对话内容。** 对话本身仍然会经过你配置的 `ANTHROPIC_BASE_URL`。如果那是第三方网关，网关能看到内容 —— 这不在本项目范围内。
 - **版本会变。** 本项目针对 Claude Code CLI 2.1.x 与 Claude Desktop 5.x 验证过。官方改键名后 `./no-claude.sh verify` 会失败，届时提 issue。
 - **不提供位置伪造。** 地理位置由出口 IP 决定，属于代理/VPN 的事，不是配置开关能解决的。遥测关掉后，Anthropic 少了 Sentry scope 里的时区、locale、设备指纹这几条线索。
-- **macOS 优先。** Linux/Windows 的桌面端路径不同，`tools/config.py` 可以单独用（只处理 CLI），但桌面端未适配。
+- **macOS 优先。** macOS 上四层（CLI、CC Switch、桌面端、Clash Verge）都验证过；Windows 有薄封装 `platform/windows/no-claude.ps1`，复用同一份 Python 核心，但**未在 Windows 实机验证**，见 [platform/README.md](platform/README.md)。
 
 ## 参考
 

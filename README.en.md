@@ -4,6 +4,14 @@ Turn off telemetry from **Claude Code CLI** and **Claude Desktop**: crash report
 
 Local configuration only. No repackaging, no traffic interception, no touching conversation data.
 
+> **Disclaimer**
+>
+> This project is solely for **protecting the user's own privacy**, on their own machine and their own account.
+> It **must not** be used to harm Anthropic/Claude or any other party's legitimate interests: no bypassing billing
+> or quotas, no evading abuse controls, no attacking the service, no impersonation, and no blocking traffic that the
+> software legitimately needs to function. You are responsible for compliance with local law and Claude's Terms of
+> Service; the authors take no responsibility for misuse.
+
 ```bash
 ./no-claude.sh apply --guard      # apply
 ./no-claude.sh verify --restart   # verify
@@ -34,6 +42,7 @@ cd no-claude
 ./no-claude.sh apply            # idempotent
 ./no-claude.sh clean            # archive queued-but-unsent telemetry
 ./no-claude.sh verify --restart # relaunch Claude and check for new telemetry
+./no-claude.sh block install    # optional: add REJECT rules to Clash Verge
 ```
 
 Optional guard (re-applies the switches after CC Switch rewrites configs):
@@ -70,22 +79,36 @@ No sudo needed. A `<file>.no-claude.bak` is kept before the first modification.
 | `~/.cc-switch/cc-switch.db` → `common_config_claude` | keeps switches when CC Switch changes providers |
 | `~/Library/Application Support/Claude*/configLibrary/<id>.json` | the managed config layer desktop actually reads |
 | `~/Library/LaunchAgents/com.local.no-claude.guard.plist` | optional guard (`--guard`) |
+| `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/profiles/<rules>.yaml` | optional network layer: `prepend` in Clash Verge's rules enhancement (`block install`) |
 
 `clean` never deletes: it renames queued Sentry files with an `.archived-<timestamp>` suffix.
 
-## Why not hosts / domain blocking
+## Network layer: block telemetry hosts only (optional)
 
-- `api.anthropic.com` is also the official API endpoint; blocking it breaks normal use when you talk to Anthropic directly.
-- Desktop respects the system proxy, so domain blocking means editing Clash/mihomo rules — and mihomo's `PATCH /configs` replaces the whole rule table.
-- Telemetry is app-initiated. Turning it off at the source is cleaner and survives node switches.
+```bash
+./no-claude.sh block install    # idempotent
+./no-claude.sh status           # shows app layer + network layer
+./no-claude.sh block uninstall
+```
 
-If you still want a network layer, block only: `*.sentry.io`, `*.ingest.us.sentry.io`, `*.statsigapi.net`, `claude.ai/api/v2/rum`, `api.anthropic.com/api/event_logging/`.
+It appends a marked `# no-claude:begin/end` block to the `prepend` list of your **Clash Verge rules enhancement file**
+(backup: `.no-claude.bak`). It never touches subscriptions, proxies, groups, or `PATCH /configs` (which replaces the whole table).
+
+Blocked (all `REJECT`): `sentry.io`, `statsigapi.net`, `statsig.anthropic.com`, `datadoghq.com`, `datadoghq.eu`.
+
+**Not blocked:** `anthropic.com` and `claude.ai` — they are needed for normal operation, so `claude.ai/api/v2/rum` is only
+turn-off-able at the app layer (verified working). Path-level rules such as `api.anthropic.com/api/event_logging/` are not
+possible with domain matching.
+
+You must click **"re-apply configuration"** once in Clash Verge for the rules to reach the core; `./no-claude.sh status`
+reads `/rules` over the mihomo unix socket and tells you whether they are live. Re-run `block install` after a
+subscription update if Clash Verge regenerates the enhancement file.
 
 ## Rollback
 
 ```bash
 ./no-claude.sh revert      # remove switches written by this tool
-./no-claude.sh uninstall   # revert + remove guard
+./no-claude.sh uninstall   # revert + remove network rules + remove guard
 ```
 
 ## Limitations
@@ -93,7 +116,7 @@ If you still want a network layer, block only: `*.sentry.io`, `*.ingest.us.sentr
 - **Telemetry only, not content.** Conversations still travel through your `ANTHROPIC_BASE_URL`; if that is a third-party gateway, it sees the content.
 - **Versions change.** Verified against Claude Code CLI 2.1.x and Claude Desktop 5.x. If Anthropic renames a key, `verify` will fail.
 - **No location spoofing.** Geolocation comes from your egress IP; that is a proxy/VPN concern. Disabling telemetry does remove timezone, locale and device fingerprints from Sentry scopes.
-- **macOS first.** `tools/config.py` works standalone for the CLI on any platform; desktop paths are macOS-specific.
+- **macOS first.** All four layers are verified on macOS. Windows has a thin wrapper (`platform/windows/no-claude.ps1`) over the same Python core, but it is **not verified on a real Windows machine** — see [platform/README.md](platform/README.md).
 
 ## License
 
